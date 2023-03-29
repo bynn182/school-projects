@@ -1,0 +1,116 @@
+---
+title: "Final Project"
+author: "Charlie Wolfe"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+#Install Neccessary Packages
+```{r}
+install.packages('ggplot2')
+library(ggplot2)
+install.packages('tidyverse')
+library(tidyverse)
+install.packages("ROI.plugin.glpk")
+install.packages("ROI")
+library(ROI)
+library(ROI.plugin.glpk)
+install.packages('ompr')
+library(ompr)
+install.packages('ompr.roi')
+library(ompr.roi)
+```
+
+## Revenue Optimization
+```{r}
+
+c <- c(5.5, 6.5, 7)
+
+names(c) <- c("Dunkel", "IPA","Stout")
+
+b <- c(150, 48, 16, 1000)
+
+A <- rbind(c(10/40, 12/40, 13/40), c(1/40, 6/40, 1/40), c(1/40, 1/40, 1/40), c(10/40, 10/40, 10/40))
+
+
+
+variableBounds <- V_bound(li = 1:3, ui = 1:3, lb = c(1,1,1), ub = c(Inf,Inf,Inf))
+
+model <- OP(objective = c, 
+           constraints = L_constraint(L = A, 
+                                      dir = rep("<=",4), 
+                                      rhs = b), 
+           types = rep.int("I",3),
+           maximum = TRUE, 
+           bounds = variableBounds)
+
+result <- ROI_solve(model, "glpk", verbose = TRUE)
+
+solution(result)
+
+result$message
+```
+## Process Simulation
+```{r}
+
+```
+#Path Optimization
+```{r}
+
+
+
+businessLocations <- read_csv("http://www.nd.edu/~sberry5/data/warehouseLocations.csv")
+
+ggplot(businessLocations, aes(x, y)) +
+  geom_point() +
+  theme_minimal()
+
+
+n = 15
+
+
+distance <- as.matrix(dist(select(businessLocations, x, y), diag = TRUE, upper = TRUE))
+
+model <- MIPModel() %>%
+ 
+  add_variable(x[i, j], i = 1:n, j = 1:n,
+               type = "integer", lb = 0, ub = 1) %>%
+ 
+  add_variable(u[i], i = 1:n, lb = 1, ub = n) %>%
+ 
+  set_objective(sum_expr(distance[i, j] * x[i, j], i = 1:n, j = 1:n), "min") %>%
+ 
+  # you cannot go to the same city
+  set_bounds(x[i, i], ub = 0, i = 1:n) %>%
+ 
+  # leave each city
+  add_constraint(sum_expr(x[i, j], j = 1:n) == 1, i = 1:n) %>%
+ 
+  # visit each city
+  add_constraint(sum_expr(x[i, j], i = 1:n) == 1, j = 1:n) %>%
+ 
+  add_constraint(u[i] >= 2, i = 2:n) %>%
+ 
+  add_constraint(u[i] - u[j] + 1 <= (n - 1) * (1 - x[i, j]), i = 2:n, j = 2:n)
+
+model
+
+result <- solve_model(model, with_ROI(solver = "glpk", verbose = TRUE))
+
+solution <- get_solution(result, x[i, j]) %>%
+  filter(value > 0)
+
+paths <- select(solution, i, j) %>%
+  rename(from = i, to = j) %>%
+  mutate(trip_id = row_number()) %>%
+  tidyr::gather(property, idx_val, from:to) %>%
+  mutate(idx_val = as.integer(idx_val)) %>%
+  inner_join(businessLocations, by = c("idx_val" = "id"))
+
+ggplot(businessLocations, aes(x, y)) +
+  geom_point() +
+  geom_line(data = paths, aes(group = trip_id)) +
+  theme_minimal()
+```
